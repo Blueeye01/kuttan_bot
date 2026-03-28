@@ -1,17 +1,14 @@
 const fs = require('fs');
 const readline = require('readline');
 const axios = require('axios');
-const FormData = require('form-data');
 const ConnectionManager = require('./core/ConnectionManager');
 const FarmManager = require('./modules/FarmManager');
-const { mineflayer: viewer } = require('prismarine-viewer');
 
 const configFile = './config.json';
 const WEBHOOK_URL = "https://discord.com/api/webhooks/1459835277362200618/NtC3mcmXXZmsZOVQZFyTC3-_EeG-w_fl3ZuOy-yDXefpILZinX57tdESvuIzS0KgBq2H";
 
 const COLORS = { GREEN: 5763719, RED: 15548997, YELLOW: 16776960, PURPLE: 10181046, BLUE: 3447003, ORANGE: 15105570 };
 
-// ഡിസ്‌കോർഡ് ലോഗ് ഫംഗ്ഷൻ
 async function sendLog(title, description, color = COLORS.GREEN) {
     try {
         await axios.post(WEBHOOK_URL, {
@@ -37,7 +34,6 @@ async function startBot(username, password, config) {
         console.log(`✅ [${username}] Online!`);
         sendLog("Bot Online ✅", `**User:** \`${username}\` server-il keri.`, COLORS.GREEN);
 
-        // --- 1. LOW HEALTH & TOTEM ALERT ---
         bot.on('health', () => {
             const now = Date.now();
             if (bot.health < 10 && now - lastHealthAlert > 30000) {
@@ -52,7 +48,6 @@ async function startBot(username, password, config) {
             }
         });
 
-        // --- 2. INVENTORY ALERT (Rare Items) ---
         bot.on('playerCollect', (collector, item) => {
             if (collector.username === bot.username) {
                 const itemName = item.name || "item";
@@ -63,7 +58,6 @@ async function startBot(username, password, config) {
             }
         });
 
-        // --- 3. REMOTE COMMANDS (Status & SS) ---
         bot.on('message', async (jsonMsg) => {
             const msg = jsonMsg.toString().trim();
             if (!msg) return;
@@ -85,36 +79,14 @@ async function startBot(username, password, config) {
 
             if (isWhisper) {
                 sendLog("💬 PM Received", `**From:** \`${sender}\`\n**To:** \`${username}\`\n**Msg:** ${content}`, COLORS.PURPLE);
-                
-                // Command: status
                 if (content.includes(config.commandPassword + " status")) {
                     bot.chat(`/msg ${sender} ❤️ HP: ${Math.round(bot.health)}, 🍖 Food: ${Math.round(bot.food)}, 📍 Pos: ${Math.round(bot.entity.position.x)}, ${Math.round(bot.entity.position.z)}`);
-                }
-
-                // Command: ss (Screenshot)
-                if (content.includes(config.commandPassword + " ss")) {
-                    bot.chat(`/msg ${sender} Screenshot edukkukayanu, wait...`);
-                    viewer(bot, { port: 3000, firstPerson: true });
-                    setTimeout(async () => {
-                        try {
-                            const canvas = bot.viewer.canvas;
-                            if (canvas) {
-                                const buffer = canvas.toBuffer('image/png');
-                                const form = new FormData();
-                                form.append('file', buffer, { filename: 'ss.png' });
-                                form.append('payload_json', JSON.stringify({ embeds: [{ title: `📸 View from ${username}`, color: COLORS.BLUE }] }));
-                                await axios.post(WEBHOOK_URL, form, { headers: form.getHeaders() });
-                            }
-                            bot.viewer.close();
-                        } catch (e) { console.log("SS Error: " + e); }
-                    }, 3000);
                 }
             } else {
                 console.log(`[${username} CHAT] ${msg}`);
             }
         });
 
-        // --- 4. PLAYER TRACKING ---
         setInterval(() => {
             if (bot && bot.entities && bot.entity) {
                 const currentNearby = Object.values(bot.entities)
@@ -136,7 +108,6 @@ async function startBot(username, password, config) {
             }
         }, 5000);
 
-        // --- 5. AUTO STATUS (3 Mins) ---
         setInterval(() => {
             if (bot && bot.entity) {
                 const status = `❤️ **HP:** ${Math.round(bot.health)} | 🍖 **Food:** ${Math.round(bot.food)}\n📍 **Pos:** ${Math.round(bot.entity.position.x)}, ${Math.round(bot.entity.position.y)}, ${Math.round(bot.entity.position.z)}`;

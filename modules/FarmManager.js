@@ -11,6 +11,10 @@ class FarmManager {
 
     assignDuties(bot) {
         this.clearDuties(bot.username);
+        
+        // Auto-Armor: ഓരോ 10 സെക്കൻഡിലും മികച്ച ആർമർ ഉണ്ടോ എന്ന് നോക്കി ധരിക്കും
+        this.startAutoArmor(bot);
+
         for (const selectedFarm of this.selectedFarms) {
             if (!selectedFarm || !selectedFarm.duties || !selectedFarm.duties[bot.username]) continue;
             const duties = selectedFarm.duties[bot.username];
@@ -27,21 +31,37 @@ class FarmManager {
         }
     }
 
+    // --- AUTO ARMOR ---
+    startAutoArmor(bot) {
+        const interval = setInterval(async () => {
+            const armorParts = ['helmet', 'chestplate', 'leggings', 'boots'];
+            for (const part of armorParts) {
+                // നിലവിൽ ആ ഭാഗത്ത് ആർമർ ഇല്ലെങ്കിൽ മാത്രം പുതിയത് ധരിക്കാൻ നോക്കും
+                if (!bot.inventory.slots[bot.getEquipmentDestSlot(part)]) {
+                    const armor = bot.inventory.items().find(item => item.name.includes(part));
+                    if (armor) {
+                        await bot.equip(armor, part).catch(() => {});
+                    }
+                }
+            }
+        }, 10000);
+        this.addInterval(bot.username, interval);
+    }
+
     performDuties(bot, duties) {
         duties.forEach(duty => {
             const d = duty.toLowerCase();
-            // നിങ്ങളടെ Config-ലെ പേരുകൾക്ക് അനുസരിച്ചുള്ള ലോജിക്
             if (d === 'raidfarm') {
                 this.startRaidAttackLoop(bot);
                 this.startOminousPotionLoop(bot);
             } else if (d === 'hitwitherskeleton') {
-                this.killMobLoop(bot, 'wither_skeleton', 4.5, 2.2); // വിതർ സ്കെലിറ്റൺ
+                this.killMobLoop(bot, 'wither_skeleton', 4.5, 2.2);
             } else if (d === 'hitpiglin' || d === 'hitzombifiedpiglin') {
                 this.killMobLoop(bot, 'zombified_piglin', 4.5, 1.6);
             } else if (d === 'hitenderman') {
-                this.killMobLoop(bot, 'enderman', 4.5, 2.5); // എൻഡർമാൻ
+                this.killMobLoop(bot, 'enderman', 4.5, 2.5);
             } else if (d === 'hitdrowned') {
-                this.killMobLoop(bot, 'drowned', 4.5, 1.8); // ഡ്രൗൺഡ്
+                this.killMobLoop(bot, 'drowned', 4.5, 1.8);
             } else if (d === 'hitghast') {
                 this.killMobLoop(bot, 'ghast', 20, 3.0);
             } else if (d === 'sweepingedgeattack') {
@@ -54,7 +74,7 @@ class FarmManager {
     startRaidAttackLoop(bot) {
         const interval = setInterval(async () => {
             if (this.isDrinking.get(bot.username)) return;
-            const armorStand = bot.nearestEntity(e => e.name === 'armor_stand' && bot.entity.position.distanceTo(e.position) < 5);
+            const armorStand = bot.nearestEntity(e => e && e.name === 'armor_stand' && bot.entity.position.distanceTo(e.position) < 5);
             if (armorStand) {
                 const sword = bot.inventory.items().find(i => i.name.includes('sword'));
                 if (sword) await bot.equip(sword, 'hand').catch(() => {});
@@ -76,20 +96,20 @@ class FarmManager {
     async drinkFromOffhand(bot) {
         const potionNames = ['potion', 'bottle', 'ominous_bottle'];
         let offhandItem = bot.inventory.slots[45];
-        const inventoryPotion = bot.inventory.items().find(i => potionNames.some(name => i.name.toLowerCase().includes(name)));
+        const inventoryPotion = bot.inventory.items().find(i => 
+            i && i.name && potionNames.some(name => i.name.toLowerCase().includes(name))
+        );
 
-        if (!inventoryPotion && (!offhandItem || !potionNames.some(name => offhandItem.name.toLowerCase().includes(name)))) {
-            bot.emit('potion_log', "പോഷൻ തീർന്നു! ❌", true);
+        if (!inventoryPotion && (!offhandItem || !offhandItem.name || !potionNames.some(name => offhandItem.name.toLowerCase().includes(name)))) {
             return;
         }
 
         this.isDrinking.set(bot.username, true);
         try {
-            if (!offhandItem || !potionNames.some(name => offhandItem.name.toLowerCase().includes(name))) {
+            if (!offhandItem || !offhandItem.name || !potionNames.some(name => offhandItem.name.toLowerCase().includes(name))) {
                 await bot.equip(inventoryPotion, 'off-hand');
                 await bot.waitForTicks(10);
             }
-            bot.emit('potion_log', "കുടിക്കാൻ തുടങ്ങുന്നു... 🍺", false);
             bot.activateItem(true);
             await bot.waitForTicks(65);
             bot.deactivateItem();
@@ -103,8 +123,13 @@ class FarmManager {
         const interval = setInterval(async () => {
             if (this.isDrinking.get(bot.username)) return;
 
+            // ഫിക്സ്: target ഉണ്ടോ എന്നും അതിന് name ഉണ്ടോ എന്നും കൃത്യമായി നോക്കുന്നു
             const target = bot.nearestEntity(e => 
-               e.name && e.name.toLowerCase().includes(mobName) &&
+                e && 
+                e.type === 'mob' && 
+                e.name && 
+                typeof e.name === 'string' &&
+                e.name.toLowerCase().includes(mobName.toLowerCase()) &&
                 bot.entity.position.distanceTo(e.position) <= maxDistance
             );
 
@@ -112,7 +137,6 @@ class FarmManager {
                 const sword = bot.inventory.items().find(i => i.name.includes('sword'));
                 if (sword) await bot.equip(sword, 'hand').catch(() => {});
                 
-                // മോബിന്റെ കൃത്യം തലയ്ക്ക് അടിക്കാൻ വേണ്ടി offset മാറ്റുന്നു
                 await bot.lookAt(target.position.offset(0, eyeHeight, 0), true);
                 bot.attack(target);
             }

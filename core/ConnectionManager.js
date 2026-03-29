@@ -13,7 +13,7 @@ class ConnectionManager extends EventEmitter {
         this.options = options;
         this.bot = null;
         this.watchdogInterval = null;
-        this.reconnectDelay = 15000; // സെർവർ ബ്ലോക്ക് ചെയ്യാതിരിക്കാൻ 15 സെക്കൻഡ് ആക്കി
+        this.reconnectDelay = 15000; 
 
         try {
             const config = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
@@ -32,8 +32,9 @@ class ConnectionManager extends EventEmitter {
             version: this.options.version || false,
             connectTimeout: 60000,
             keepAlive: true,
-            hideErrors: true, // PartialReadError ഒഴിവാക്കാൻ
-            checkTimeoutInterval: 60000 // ലാഗ് സെർവറിൽ സ്റ്റേബിൾ ആകാൻ
+            hideErrors: true, 
+            skipValidation: true, // PartialReadError ഒഴിവാക്കാൻ ഇത് സഹായിക്കും
+            checkTimeoutInterval: 60000 
         };
 
         console.log(`[${this.options.username}] Attempting connection...`);
@@ -44,11 +45,10 @@ class ConnectionManager extends EventEmitter {
         this.bot.once('spawn', () => {
             console.log(`✅ [${this.options.username}] Spawned in world.`);
             this.startWatchdog();
-            this.setupAutoEat(); // Auto-Eat സെറ്റ് ചെയ്യുന്നു
+            this.setupAutoEat(); 
             this.emit('connected', this.bot);
 
             if (this.options.password) {
-                // ചില സെർവറുകളിൽ ഉടനെ അടിച്ചാൽ കാണില്ല, അതുകൊണ്ട് 2 സെക്കൻഡ് ഡിലേ
                 setTimeout(() => {
                     this.bot.chat(`/login ${this.options.password}`);
                 }, 2000);
@@ -68,7 +68,6 @@ class ConnectionManager extends EventEmitter {
         });
 
         this.bot.on('error', (err) => {
-            // ECONNRESET പോലുള്ള എററുകൾ ഇവിടെ ഹാൻഡിൽ ചെയ്യും
             if (err.code === 'ECONNRESET') {
                 console.log(`⚠️ [${this.options.username}] Connection Reset by Server.`);
             } else {
@@ -92,17 +91,24 @@ class ConnectionManager extends EventEmitter {
         });
     }
 
-    // Auto-Eat Function
+    // Smart Auto-Eat Function
     setupAutoEat() {
-        this.bot.on('health', () => {
-            if (this.bot.food < 14) {
-                const food = this.bot.inventory.items().find(item => 
-                    ['cooked_beef', 'cooked_chicken', 'golden_apple', 'bread', 'apple', 'cooked_porkchop', 'melon_slice'].includes(item.name)
-                );
+        this.bot.on('health', async () => {
+            // വിശപ്പ് 14-ൽ താഴെയാണെങ്കിൽ ഭക്ഷണം കഴിക്കാൻ നോക്കും
+            if (this.bot.food < 14 && !this.bot.foodPantry) {
+                const foodItems = ['cooked_beef', 'cooked_chicken', 'golden_apple', 'bread', 'apple', 'cooked_porkchop', 'melon_slice', 'cooked_mutton', 'cooked_porkchop'];
+                const food = this.bot.inventory.items().find(item => foodItems.includes(item.name));
+                
                 if (food) {
-                    this.bot.equip(food, 'hand')
-                        .then(() => this.bot.consume())
-                        .catch(() => {});
+                    try {
+                        this.bot.foodPantry = true; // ഭക്ഷണം കഴിക്കുമ്പോൾ അറ്റാക്ക് ലോജിക് തടയാൻ
+                        await this.bot.equip(food, 'hand');
+                        await this.bot.consume();
+                    } catch (e) {
+                        // Error handling
+                    } finally {
+                        this.bot.foodPantry = false;
+                    }
                 }
             }
         });
@@ -136,7 +142,7 @@ class ConnectionManager extends EventEmitter {
                 this.bot.whisper(username, "Stopped moving.");
                 break;
             case 'status':
-                this.bot.chat(`❤️ HP: ${Math.round(this.bot.health)} | 🍖 Food: ${Math.round(this.bot.food)}`);
+                this.bot.chat(`❤️ HP: ${Math.round(this.bot.health)} | 🍖 Food: ${Math.round(this.bot.food)} | 📍 Pos: ${Math.round(this.bot.entity.position.x)}, ${Math.round(this.bot.entity.position.z)}`);
                 break;
         }
     }

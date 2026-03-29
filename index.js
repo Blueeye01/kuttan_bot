@@ -79,8 +79,16 @@ async function startBot(username, password, config) {
 
             if (isWhisper) {
                 sendLog("💬 PM Received", `**From:** \`${sender}\`\n**To:** \`${username}\`\n**Msg:** ${content}`, COLORS.PURPLE);
+                
+                // Status Command
                 if (content.includes(config.commandPassword + " status")) {
                     bot.chat(`/msg ${sender} ❤️ HP: ${Math.round(bot.health)}, 🍖 Food: ${Math.round(bot.food)}, 📍 Pos: ${Math.round(bot.entity.position.x)}, ${Math.round(bot.entity.position.z)}`);
+                }
+
+                // Leave Command (New)
+                if (content.includes(config.commandPassword + " leave")) {
+                    bot.chat(`/msg ${sender} Bye! Offline akukayanu...`);
+                    setTimeout(() => bot.quit(), 1000);
                 }
             } else {
                 console.log(`[${username} CHAT] ${msg}`);
@@ -152,7 +160,8 @@ async function mainMenu() {
                     const acc = config.accounts.find(a => a.username === botName);
                     if (acc) { 
                         await startBot(acc.username, acc.password, config);
-                        await new Promise(r => setTimeout(r, 8000)); 
+                        // Reconnection/Multi-bot block thadayan 15s delay
+                        await new Promise(r => setTimeout(r, 15000)); 
                     }
                 }
             }

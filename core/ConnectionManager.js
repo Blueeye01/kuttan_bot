@@ -13,9 +13,8 @@ class ConnectionManager extends EventEmitter {
         this.options = options;
         this.bot = null;
         this.watchdogInterval = null;
-        this.reconnectDelay = 10000; // 10 Seconds
+        this.reconnectDelay = 15000; // സെർവർ ബ്ലോക്ക് ചെയ്യാതിരിക്കാൻ 15 സെക്കൻഡ് ആക്കി
 
-        // Whitelist ഉം കമാൻഡ് പാസ്‌വേഡും ലോഡ് ചെയ്യുന്നു
         try {
             const config = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
             this.whitelist = config.whitelist || [];
@@ -29,45 +28,52 @@ class ConnectionManager extends EventEmitter {
             host: this.options.host,
             port: this.options.port,
             username: this.options.username,
-            version: this.options.version || false, // config-ൽ ഉള്ള വേർഷൻ അല്ലെങ്കിൽ ഓട്ടോമാറ്റിക്
-            connectTimeout: 30000,
-            keepAlive: true
+            password: this.options.password,
+            version: this.options.version || false,
+            connectTimeout: 60000,
+            keepAlive: true,
+            hideErrors: true, // PartialReadError ഒഴിവാക്കാൻ
+            checkTimeoutInterval: 60000 // ലാഗ് സെർവറിൽ സ്റ്റേബിൾ ആകാൻ
         };
 
         console.log(`[${this.options.username}] Attempting connection...`);
         this.bot = mineflayer.createBot(botOptions);
 
-        // Pathfinder പ്ലഗിൻ ലോഡ് ചെയ്യുന്നു
         this.bot.loadPlugin(pathfinder);
 
         this.bot.once('spawn', () => {
             console.log(`✅ [${this.options.username}] Spawned in world.`);
             this.startWatchdog();
+            this.setupAutoEat(); // Auto-Eat സെറ്റ് ചെയ്യുന്നു
             this.emit('connected', this.bot);
 
-            // സെർവറിൽ ലോഗിൻ ചെയ്യാനുള്ള കമാൻഡ്
             if (this.options.password) {
-                this.bot.chat(`/login ${this.options.password}`);
+                // ചില സെർവറുകളിൽ ഉടനെ അടിച്ചാൽ കാണില്ല, അതുകൊണ്ട് 2 സെക്കൻഡ് ഡിലേ
+                setTimeout(() => {
+                    this.bot.chat(`/login ${this.options.password}`);
+                }, 2000);
             }
         });
 
-        // ചാറ്റ് ലിസണർ (കമാൻഡുകൾക്കായി)
         this.bot.on('chat', (username, message) => {
             if (username === this.bot.username) return;
-            // 'abu' എന്ന് തുടങ്ങുന്ന മെസ്സേജുകൾ കമാൻഡ് ആയി എടുക്കും
             if (message.toLowerCase().startsWith('abu')) {
                 this.handleCommand(username, message.substring(3).trim());
             }
         });
 
-        // ജനറൽ മെസ്സേജ് ഹാൻഡ്‌ലർ
         this.bot.on('message', (jsonMsg) => {
             const msg = jsonMsg.toString();
             this.emit('bot_message', msg);
         });
 
         this.bot.on('error', (err) => {
-            console.log(`❌ [${this.options.username}] Error: ${err.message}`);
+            // ECONNRESET പോലുള്ള എററുകൾ ഇവിടെ ഹാൻഡിൽ ചെയ്യും
+            if (err.code === 'ECONNRESET') {
+                console.log(`⚠️ [${this.options.username}] Connection Reset by Server.`);
+            } else {
+                console.log(`❌ [${this.options.username}] Error: ${err.message}`);
+            }
             this.emit('bot_error', err);
         });
 
@@ -77,25 +83,38 @@ class ConnectionManager extends EventEmitter {
 
         this.bot.on('end', (reason) => {
             this.cleanup();
-            console.log(`🔌 [${this.options.username}] Disconnected: ${reason}. Reconnecting in 10s...`);
+            console.log(`🔌 [${this.options.username}] Disconnected: ${reason}. Reconnecting in 15s...`);
             this.emit('bot_end', reason);
             
-            // കൃത്യം 10 സെക്കൻഡിൽ റീകണക്ട് ചെയ്യുന്നു
             setTimeout(() => {
                 this.connect();
             }, this.reconnectDelay);
         });
     }
 
-    // കമാൻഡുകൾ കൈകാര്യം ചെയ്യുന്നു (Whitelist ഉള്ളവർക്ക് മാത്രം)
+    // Auto-Eat Function
+    setupAutoEat() {
+        this.bot.on('health', () => {
+            if (this.bot.food < 14) {
+                const food = this.bot.inventory.items().find(item => 
+                    ['cooked_beef', 'cooked_chicken', 'golden_apple', 'bread', 'apple', 'cooked_porkchop', 'melon_slice'].includes(item.name)
+                );
+                if (food) {
+                    this.bot.equip(food, 'hand')
+                        .then(() => this.bot.consume())
+                        .catch(() => {});
+                }
+            }
+        });
+    }
+
     handleCommand(username, fullCommand) {
         if (!this.whitelist.includes(username)) return;
 
         const args = fullCommand.split(' ');
         const command = args.shift().toLowerCase();
         
-        // മൈൻക്രാഫ്റ്റ് ഡാറ്റയും മൂവ്‌മെന്റ്സും
-        const mcData = require('minecraft-data')(this.bot.version);
+        const mcData = require('minecraft-data')(this.bot.version || '1.20.1'); 
         const movements = new Movements(this.bot, mcData);
 
         switch (command) {
@@ -116,10 +135,12 @@ class ConnectionManager extends EventEmitter {
                 this.bot.pathfinder.setGoal(null);
                 this.bot.whisper(username, "Stopped moving.");
                 break;
+            case 'status':
+                this.bot.chat(`❤️ HP: ${Math.round(this.bot.health)} | 🍖 Food: ${Math.round(this.bot.food)}`);
+                break;
         }
     }
 
-    // ബോട്ട് ഒരേ സ്ഥലത്ത് സ്റ്റക്ക് ആയാൽ റീസ്റ്റാർട്ട് ചെയ്യാൻ
     startWatchdog() {
         this.cleanup();
         this.watchdogInterval = setInterval(() => {

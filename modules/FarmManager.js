@@ -104,7 +104,7 @@ class FarmManager {
             if (this.isDrinking.get(bot.username)) return;
 
             const target = bot.nearestEntity(e => 
-                e.name.toLowerCase().includes(mobName) && 
+               e.name && e.name.toLowerCase().includes(mobName) &&
                 bot.entity.position.distanceTo(e.position) <= maxDistance
             );
 
